@@ -1,0 +1,8 @@
+node_modules/
+__pycache__/
+.venv/
+.DS_Store
+.env*
+*.log
+desktop-results.json
+mac-mini-results.json
