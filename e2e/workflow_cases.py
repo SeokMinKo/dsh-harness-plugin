@@ -228,44 +228,80 @@ def run_workflow_browser(host, archive, record, chromium):
             design('@watch 다음에 @test와 @lead 병렬, @report가 최종 보고해')
             page.get_by_text('검증과 메타데이터 정리를 병렬 실행하고 결과를 합칩니다.').wait_for()
             assert page.get_by_label('워크플로우 이름', exact=True).input_value() == '워크플로우'
-            page.get_by_text('제안 그래프 미리 보기', exact=True).wait_for()
+            preview = page.locator('.tc-wf-preview').get_by_role('region', name='작업 관계도', exact=True)
+            preview.get_by_role('button', name='최종 보고', exact=True).wait_for()
+            assert preview.locator('path[marker-end]').count() == 4
+            assert preview.get_by_role('button', name='펌웨어 검증 → 최종 보고 · 성공 후', exact=True).count() == 0
             page.get_by_role('button', name='초안에 반영', exact=True).click()
-            page.get_by_label('펌웨어 검증 담당 Agent').wait_for()
-            page.get_by_text('병렬 2개', exact=True).wait_for()
+            preview.wait_for(state='detached')
+            chart.get_by_role('button', name='펌웨어 검증', exact=True).wait_for()
+            verify = chart.get_by_role('button', name='펌웨어 검증', exact=True).bounding_box()
+            metadata = chart.get_by_role('button', name='메타데이터 정리', exact=True).bounding_box()
+            report = chart.get_by_role('button', name='최종 보고', exact=True).bounding_box()
+            assert verify['y'] == metadata['y'] < report['y'] and verify['x'] != metadata['x']
             assert page.get_by_label('워크플로우 이름', exact=True).input_value() == '펌웨어 검증 흐름'
-            return {'browser': browser.version, 'proposedNodes': 4}
+            return {'browser': browser.version, 'proposedNodes': 4, 'dependencyArrows': 4}
+
+        chart = page.get_by_role('region', name='작업 관계도', exact=True)
+
+        def edge(source, target, condition):
+            return chart.get_by_role('button', name=f'{source} → {target} · {condition}', exact=True)
 
         def edit_bidirectional():
-            assignment = page.get_by_label('펌웨어 검증 담당 Agent', exact=True)
+            chart.get_by_role('button', name='펌웨어 검증', exact=True).press('Enter')
+            assignment = chart.get_by_label('펌웨어 검증 담당 Agent', exact=True)
             assignment.select_option(label='@report')
-            page.get_by_role('button', name='최종 보고', exact=True).click()
+            chart.get_by_role('button', name='편집 닫기', exact=True).click()
+            edge('펌웨어 검증', '최종 보고', '성공 후').press('Enter')
+            chart.get_by_label('연결 실행 조건', exact=True).select_option('failure')
+            edge('펌웨어 검증', '최종 보고', '실패 시').wait_for()
+            chart.get_by_role('button', name='편집 닫기', exact=True).click()
+            chart.get_by_role('button', name='최종 보고', exact=True).click()
+            chart.get_by_role('button', name='연결 추가', exact=True).click()
+            assert chart.get_by_role('button', name='펌웨어 확인', exact=True).is_disabled()
+            chart.get_by_role('button', name='연결 취소', exact=True).click()
+            chart.get_by_role('button', name='펌웨어 확인', exact=True).click()
+            chart.get_by_role('button', name='연결 추가', exact=True).click()
+            assert chart.get_by_role('button', name='펌웨어 확인', exact=True).is_disabled()
+            assert chart.get_by_role('button', name='펌웨어 검증', exact=True).is_disabled()
+            chart.get_by_role('button', name='최종 보고', exact=True).click()
+            chart.get_by_role('button', name='편집 닫기', exact=True).click()
+            edge('펌웨어 확인', '최종 보고', '성공 후').click()
+            chart.get_by_role('button', name='연결 삭제', exact=True).click()
+            edge('펌웨어 확인', '최종 보고', '성공 후').wait_for(state='detached')
             design('선택한 작업은 둘 다 종료 후 보고')
             page.get_by_text('실패를 포함한 종료 후 보고로 변경합니다.').wait_for()
             page.get_by_role('button', name='초안에 반영', exact=True).click()
-            page.locator('.tc-wf-edges').get_by_role('button', name='펌웨어 검증 · 종료 후', exact=False).wait_for()
+            page.locator('.tc-wf-preview').wait_for(state='detached')
+            edge('펌웨어 검증', '최종 보고', '종료 후').wait_for()
+            edge('메타데이터 정리', '최종 보고', '종료 후').wait_for()
+            chart.get_by_role('button', name='펌웨어 검증', exact=True).click()
             assert assignment.locator('option:checked').inner_text() == '@report'
             page.get_by_role('button', name='일반 채팅', exact=True).click()
             page.get_by_role('button', name='버전 저장', exact=True).click()
             page.get_by_text('v1 저장됨', exact=True).wait_for()
 
         def views_and_reopen():
-            page.get_by_label('관계 보기').select_option('hierarchy')
             page.get_by_text('계층 그룹 편집', exact=True).click()
             page.get_by_role('button', name='그룹 추가', exact=True).click()
             page.get_by_label('그룹 이름', exact=True).fill('검증·보고 그룹')
             page.get_by_label('그룹 담당 Agent', exact=True).select_option(label='@lead')
-            page.get_by_role('button', name='최종 보고', exact=True).click()
-            group = page.get_by_label('소속 그룹')
-            group.select_option(label='검증·보고 그룹')
+            chart.get_by_role('button', name='최종 보고', exact=True).click()
+            page.get_by_label('소속 그룹').select_option(label='검증·보고 그룹')
             page.get_by_role('button', name='초안 저장', exact=True).click()
-            page.get_by_role('button', name='초안 저장', exact=True).wait_for()
             page.wait_for_function("document.querySelector('.tc-wf-save button').disabled")
             open_room(page, base)
-            page.get_by_label('관계 보기').select_option('hierarchy')
-            page.locator('.tc-wf-group').get_by_role('button', name='검증·보고 그룹', exact=True).wait_for()
-            page.get_by_label('관계 보기').select_option('parallel')
-            page.get_by_text('병렬 2개', exact=True).wait_for()
-            page.screenshot(path=str(host.workdir / 'workflow-panel.png'))
+            chart.get_by_text('검증·보고 그룹', exact=True).wait_for()
+            edge('메타데이터 정리', '최종 보고', '종료 후').wait_for()
+            page.locator('.tc-wf-panel').screenshot(path=str(host.workdir / 'workflow-panel.png'))
+            page.set_viewport_size({'width': 390, 'height': 800})
+            edge('메타데이터 정리', '최종 보고', '종료 후').click()
+            editor = chart.get_by_label('연결 실행 조건', exact=True)
+            editor.wait_for()
+            bounds = editor.bounding_box()
+            assert 0 <= bounds['x'] < bounds['x'] + bounds['width'] <= 390
+            page.locator('.tc-wf-panel').screenshot(path=str(host.workdir / 'workflow-narrow.png'))
+            page.set_viewport_size({'width': 1510, 'height': 960})
 
         def run_status():
             page.get_by_role('button', name='실행 상태', exact=True).click()

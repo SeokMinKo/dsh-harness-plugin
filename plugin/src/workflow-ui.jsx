@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { TaskControls, taskStates } from './task-controls.jsx'
-import { checkDraft, initialDraft, initialNode, orderNodes, changedDraft } from './workflow-model.js'
-import { draftFromLayout, edgeLabels, lanes, layoutLabels, mergeEdits, newKey } from './workflow-draft.js'
+import { checkDraft, initialDraft, initialNode, changedDraft } from './workflow-model.js'
+import { draftFromLayout, layoutLabels, mergeEdits, newKey } from './workflow-draft.js'
+import { WorkflowGraph } from './workflow-graph.jsx'
 
 const states = { ...taskStates, created: '생성', ready: '실행 준비', edited: '변경 적용' }
 
@@ -180,56 +181,7 @@ export function WorkflowChat({ workflow, selected, answer, onClose, onAnswer }) 
   </section>
 }
 
-function AgentSelect({ node, members, onChange }) {
-  return <select aria-label={node.title + ' 담당 Agent'} value={node.agent ?? ''} onChange={event => onChange(event.target.value || null)}>
-    <option value="">미배정</option>
-    {node.agent && !members.some(member => member.id === node.agent) && <option value={node.agent}>팀에서 사라진 Agent</option>}
-    {members.map(member => <option value={member.id} key={member.id}>@{member.name}</option>)}
-  </select>
-}
-
-function Graph({ draft, members, layout, onChange, onSelect, selected, run, previous }) {
-  const [folded, setFolded] = useState([])
-  const nodeById = new Map(draft.nodes.map(node => [node.id, node]))
-  const agents = new Map(members.map(member => [member.id, member.name]))
-  function card(node) {
-    const step = run?.steps[node.id]
-    const label = step?.attention?.kind === 'approval' ? 'DSH 승인 대기' : step?.attention?.kind === 'question'
-      ? 'DSH 질문 대기' : states[step?.status]
-    const changed = previous && JSON.stringify(previous.nodes.find(item => item.id === node.id)) !== JSON.stringify(node)
-    return <article className="tc-wf-node" data-selected={selected === node.id} data-changed={changed} key={node.id}>
-      <button type="button" aria-pressed={selected === node.id} className="tc-wf-node-title" onClick={() => onSelect(node.id)}>{node.title}</button>
-      {onChange ? <AgentSelect node={node} members={members} onChange={agent => onChange(node.id, { agent })} />
-        : <small>@{agents.get(node.agent) ?? '미배정'}</small>}
-      {label && <span className="tc-wf-status" data-state={step.status}>{label}</span>}
-      {step?.waiting && <small className="tc-wf-muted">{step.waiting}</small>}
-      {node.after.length > 0 && <div className="tc-wf-edges" aria-label="선행 작업">
-        {node.after.map(edge => <button type="button" key={edge.from} onClick={() => onSelect(edge.from)}>
-          ↖ {nodeById.get(edge.from)?.title ?? edge.from} · {edgeLabels[edge.when]}
-        </button>)}
-      </div>}
-    </article>
-  }
-  function group(parent) {
-    return draft.groups.filter(item => item.parent === parent).map(item => <section className="tc-wf-group" key={item.id}>
-      <button aria-expanded={!folded.includes(item.id)} onClick={() => setFolded(folded.includes(item.id)
-        ? folded.filter(id => id !== item.id) : [...folded, item.id])} type="button">{item.title}</button>{item.agent && <small> · @{agents.get(item.agent) ?? '미배정'}</small>}
-      {!folded.includes(item.id) && <div>{draft.nodes.filter(node => node.group === item.id).map(card)}{group(item.id)}</div>}
-    </section>)
-  }
-  if (layout === 'hierarchy') return <div className="tc-wf-graph">{group(null)}{draft.nodes.filter(node => !node.group).map(card)}</div>
-  let graph
-  try { graph = layout === 'parallel' || layout === 'mixed' ? lanes(draft) : orderNodes(draft).map(node => [node]) }
-  catch { graph = draft.nodes.map(node => [node]) }
-  return <div className="tc-wf-graph">{graph.map((nodes, index) => <section className="tc-wf-lane" key={index}>
-    <div className="tc-wf-lane-head">단계 {index + 1}{nodes.length > 1 && <span>병렬 {nodes.length}개</span>}</div>
-    <div className={nodes.length > 1 ? 'tc-wf-lane-branches' : ''}>{nodes.map(card)}</div>
-  </section>)}</div>
-}
-
 function NodeEditor({ draft, node, patch, onRemove }) {
-  const [dependency, setDependency] = useState('')
-  const options = draft.nodes.filter(item => item.id !== node.id && !node.after.some(edge => edge.from === item.id))
   return <fieldset className="tc-wf-fieldset">
     <legend>작업 세부 설정</legend>
     <label>작업 이름<input value={node.title} maxLength={100} onChange={event => patch({ title: event.target.value })} /></label>
@@ -245,23 +197,6 @@ function NodeEditor({ draft, node, patch, onRemove }) {
     </label>
     <label className="tc-wf-check"><input type="checkbox" checked={node.needsDevice} onChange={event => patch({ needsDevice: event.target.checked })} /> 대상 장비 점유</label>
     <label className="tc-wf-check"><input type="checkbox" checked={node.tools} onChange={event => patch({ tools: event.target.checked })} /> DSH 도구 필요</label>
-    <div className="tc-wf-deps">
-      <strong>선행 작업</strong>
-      {node.after.map(edge => <div className="tc-wf-row" key={edge.from}>
-        <span>{draft.nodes.find(item => item.id === edge.from)?.title}</span>
-        <select aria-label="연결 실행 조건" value={edge.when} onChange={event => patch({ after: node.after.map(item =>
-          item.from === edge.from ? { ...item, when: event.target.value } : item) })}>
-          {Object.entries(edgeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-        </select>
-        <button type="button" onClick={() => patch({ after: node.after.filter(item => item.from !== edge.from) })}>연결 삭제</button>
-      </div>)}
-      <div className="tc-wf-row"><select aria-label="추가할 선행 작업" value={dependency} onChange={event => setDependency(event.target.value)}>
-        <option value="">선행 작업 선택</option>{options.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
-      </select><button type="button" disabled={!options.some(item => item.id === dependency)} onClick={() => {
-        patch({ after: [...node.after, { from: dependency, when: 'success' }] })
-        setDependency('')
-      }}>연결 추가</button></div>
-    </div>
     <button type="button" className="tc-wf-danger" onClick={onRemove}>작업 삭제</button>
   </fieldset>
 }
@@ -347,7 +282,6 @@ function RunDetails({ run, node, workflow, openAgent, openMessage, ask }) {
 }
 
 export function WorkflowPanel({ workflow, selected, onSelect, runId, onRun, tab, setTab, onDesign, ask, onClose, openAgent, openMessage }) {
-  const [view, setView] = useState('')
   const [version, setVersion] = useState('')
   const [input, setInput] = useState('')
   const [device, setDevice] = useState('')
@@ -384,18 +318,14 @@ export function WorkflowPanel({ workflow, selected, onSelect, runId, onRun, tab,
         {server.unavailable && <p className="tc-error">{server.unavailable}</p>}
         {tab === 'edit' ? <>
           {workflow.preview && <details className="tc-wf-fieldset tc-wf-preview" open><summary>제안 그래프 미리 보기</summary>
-            <Graph draft={workflow.preview.result.draft} members={members}
-              layout={workflow.preview.result.draft.layout} selected={selected} onSelect={onSelect} previous={draft} />
+            <WorkflowGraph draft={workflow.preview.result.draft} members={members} states={states}
+              selected={selected} onSelect={onSelect} previous={draft} />
           </details>}
-          <div className="tc-wf-fieldset">
-            <label>워크플로우 이름<input value={draft.title} maxLength={100} onChange={event => edit({ ...draft, title: event.target.value })} /></label>
-            <label>{draft.nodes.length ? '초안의 기본 보기' : '시작 형태'}<select aria-label={draft.nodes.length ? '초안의 기본 보기' : '시작 형태'} value={draft.layout} onChange={event => {
-              const layout = event.target.value
-              edit(draft.nodes.length ? { ...draft, layout } : { ...draftFromLayout(layout), title: draft.title })
-              setView('')
-            }}>{Object.entries(layoutLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-          </div>
-          <GroupEditor draft={draft} edit={edit} members={members} />
+          <label>워크플로우 이름<input value={draft.title} maxLength={100} onChange={event => edit({ ...draft, title: event.target.value })} /></label>
+          {!draft.nodes.length && <label>시작 형태<select value={draft.layout} onChange={event =>
+            edit({ ...draftFromLayout(event.target.value), title: draft.title })}>
+            {Object.entries(layoutLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </select></label>}
           <div className="tc-wf-row tc-wf-edit-actions">
             <button type="button" disabled={draft.nodes.length >= 16} onClick={() => {
               const node = initialNode(newKey('step'))
@@ -427,11 +357,7 @@ export function WorkflowPanel({ workflow, selected, onSelect, runId, onRun, tab,
               action: 'repair', id: run.id, runRevision: run.revision,
             })}>DSH 작업 보드 다시 연결</button></div>}
         </div>}
-        <label className="tc-wf-view">관계 보기<select aria-label="관계 보기" value={view || graph.layout} onChange={event => setView(event.target.value)}>
-          {Object.entries(layoutLabels).filter(([key]) => key !== 'blank' || graph.layout === 'blank').map(([key, label]) =>
-            <option key={key} value={key}>{label}</option>)}
-        </select></label>
-        <Graph draft={graph} members={members} layout={view || graph.layout} selected={selected} onSelect={onSelect}
+        <WorkflowGraph key={tab === 'edit' ? 'draft' : run?.id ?? 'run'} draft={graph} members={members} states={states} selected={selected} onSelect={onSelect}
           onChange={tab === 'edit' ? patch : null} run={tab === 'run' ? run : null} />
         {tab === 'edit' ? <>
           {node && <>
@@ -446,6 +372,7 @@ export function WorkflowPanel({ workflow, selected, onSelect, runId, onRun, tab,
               onSelect('')
             }} />
           </>}
+          <GroupEditor draft={draft} edit={edit} members={members} />
           {validation && <p className="tc-error">{validation}</p>}
           {workflow.conflict && <Conflict key={server.revision} workflow={workflow} />}
           <div className="tc-wf-row tc-wf-save">

@@ -274,18 +274,18 @@
   {
     "id": "WUI-02",
     "group": "workflow-browser",
-    "title": "패널 배정과 채팅 조건 변경",
+    "title": "차트에서 Agent 배정과 연결 편집",
     "reference": "Team Chat workflow",
-    "steps": "드롭다운에서 담당을 바꾸고 채팅에서 합류 조건을 변경한다.",
-    "expect": "담당을 보존하고 두 연결 조건을 종료 후로 바꿔 저장한다."
+    "steps": "노드에서 담당을 바꾸고 화살표를 편집한 뒤 채팅에서 합류 조건을 변경한다.",
+    "expect": "담당·조건 변경과 연결 추가·삭제가 차트에 반영되고, 순환·중복 연결은 선택할 수 없다."
   },
   {
     "id": "WUI-03",
     "group": "workflow-browser",
-    "title": "계층과 병렬 보기, 새로 열기",
+    "title": "그룹 소속 저장과 좁은 화면의 차트",
     "reference": "Team Chat workflow",
     "steps": "계층 그룹으로 작업을 묶고 방을 다시 연다.",
-    "expect": "그룹 배치가 유지되며 보기 전환 후에도 같은 실행 연결이다."
+    "expect": "그룹 소속과 연결 조건이 유지되고 좁은 화면에서도 연결을 편집할 수 있다."
   },
   {
     "id": "WUI-04",
